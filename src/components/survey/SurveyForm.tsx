@@ -70,6 +70,7 @@ export const SurveyForm = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // แก้ไขส่วนนี้ให้เป็น Async/Await เพื่อรอ Database
   const handleSubmit = async () => {
     if (!validateStep(step)) return;
     
@@ -83,11 +84,14 @@ export const SurveyForm = () => {
         ...values as Omit<SurveyResponse, 'id' | 'createdAt'>
       };
       
-      saveResponse(response);
+      // รอให้บันทึกเสร็จก่อน
+      await saveResponse(response);
+      
       setIsComplete(true);
       toast.success('บันทึกข้อมูลสำเร็จ!');
     } catch (error) {
-      toast.error('เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง');
+      console.error('Submission error:', error);
+      toast.error('เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองใหม่');
     } finally {
       setIsSubmitting(false);
     }
