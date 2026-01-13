@@ -100,13 +100,14 @@ const Admin = () => {
     toast.success('ลบข้อมูลทั้งหมดแล้ว');
   };
 
-  const handleDownloadAll = () => {
+  const handleDownloadAll = async () => {
     if (responses.length === 0) {
       toast.error('ไม่มีข้อมูลสำหรับสร้าง PDF');
       return;
     }
     try {
-      generateSummaryPDF(responses);
+      toast.info('กำลังโหลดฟอนต์ภาษาไทย...');
+      await generateSummaryPDF(responses);
       toast.success('ดาวน์โหลด PDF สำเร็จ');
     } catch (error) {
       console.error('PDF generation error:', error);
@@ -114,9 +115,10 @@ const Admin = () => {
     }
   };
 
-  const handleDownloadIndividual = (response: SurveyResponse) => {
+  const handleDownloadIndividual = async (response: SurveyResponse) => {
     try {
-      generateIndividualPDF(response);
+      toast.info('กำลังโหลดฟอนต์ภาษาไทย...');
+      await generateIndividualPDF(response);
       toast.success('ดาวน์โหลด PDF สำเร็จ');
     } catch (error) {
       console.error('PDF generation error:', error);
