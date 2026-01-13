@@ -45,47 +45,84 @@ const COLORS = {
   dark: [31, 41, 55] as [number, number, number],           // Dark
 };
 
-// Font loading cache
-let fontLoaded = false;
-let fontLoadPromise: Promise<void> | null = null;
+// Font name constant
+const THAI_FONT = 'THSarabunNew';
 
-const loadThaiFont = async (doc: jsPDF): Promise<void> => {
-  if (fontLoaded) {
-    doc.setFont('Sarabun');
-    return;
+// Font loading cache - store base64 globally
+let fontBase64Cache: string | null = null;
+let fontLoadPromise: Promise<string> | null = null;
+
+const loadFontBase64 = async (): Promise<string> => {
+  if (fontBase64Cache) {
+    return fontBase64Cache;
   }
   
   if (fontLoadPromise) {
-    await fontLoadPromise;
-    doc.setFont('Sarabun');
-    return;
+    return fontLoadPromise;
   }
 
   fontLoadPromise = (async () => {
     try {
-      // Load Sarabun Regular from Google Fonts CDN
-      const fontUrl = 'https://fonts.gstatic.com/s/sarabun/v15/DtVjJx26TKEr37c9YL5rik8s6yLUrwB0lw.ttf';
+      // Load THSarabunNew from reliable CDN
+      const fontUrl = 'https://cdn.jsdelivr.net/gh/nicedoc/jsPDF-TH-regular@main/fonts/THSarabunNew.ttf';
       const response = await fetch(fontUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch font: ${response.status}`);
+      }
+      
       const arrayBuffer = await response.arrayBuffer();
       
       // Convert to base64
-      const base64 = btoa(
-        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-      );
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      for (let i = 0; i < uint8Array.length; i++) {
+        binaryString += String.fromCharCode(uint8Array[i]);
+      }
+      const base64 = btoa(binaryString);
       
-      // Add font to jsPDF
-      doc.addFileToVFS('Sarabun-Regular.ttf', base64);
-      doc.addFont('Sarabun-Regular.ttf', 'Sarabun', 'normal');
-      
-      fontLoaded = true;
+      fontBase64Cache = base64;
+      return base64;
     } catch (error) {
-      console.error('Failed to load Thai font:', error);
-      // Fallback to Helvetica if font loading fails
+      console.error('Failed to load Thai font from primary CDN, trying fallback:', error);
+      
+      // Fallback to another source
+      try {
+        const fallbackUrl = 'https://raw.githubusercontent.com/nicedoc/jsPDF-TH-regular/main/fonts/THSarabunNew.ttf';
+        const response = await fetch(fallbackUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        
+        const uint8Array = new Uint8Array(arrayBuffer);
+        let binaryString = '';
+        for (let i = 0; i < uint8Array.length; i++) {
+          binaryString += String.fromCharCode(uint8Array[i]);
+        }
+        const base64 = btoa(binaryString);
+        
+        fontBase64Cache = base64;
+        return base64;
+      } catch (fallbackError) {
+        console.error('Failed to load Thai font from fallback:', fallbackError);
+        throw fallbackError;
+      }
     }
   })();
 
-  await fontLoadPromise;
-  doc.setFont('Sarabun');
+  return fontLoadPromise;
+};
+
+const setupThaiFont = async (doc: jsPDF): Promise<void> => {
+  try {
+    const base64 = await loadFontBase64();
+    
+    // Add font to this specific doc instance
+    doc.addFileToVFS('THSarabunNew.ttf', base64);
+    doc.addFont('THSarabunNew.ttf', THAI_FONT, 'normal');
+    doc.setFont(THAI_FONT);
+  } catch (error) {
+    console.error('Failed to setup Thai font, using fallback:', error);
+    // Keep default Helvetica font
+  }
 };
 
 const addHeader = (doc: jsPDF, title: string, subtitle?: string) => {
@@ -95,12 +132,12 @@ const addHeader = (doc: jsPDF, title: string, subtitle?: string) => {
   
   // Title
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFontSize(18);
+  doc.setFont(THAI_FONT, 'normal');
   doc.text(title, 105, 15, { align: 'center' });
   
   if (subtitle) {
-    doc.setFontSize(10);
+    doc.setFontSize(12);
     doc.text(subtitle, 105, 24, { align: 'center' });
   }
   
@@ -111,8 +148,8 @@ const addSectionTitle = (doc: jsPDF, title: string, yPos: number, color: [number
   doc.setFillColor(...color);
   doc.roundedRect(15, yPos - 5, 180, 8, 2, 2, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFontSize(12);
+  doc.setFont(THAI_FONT, 'normal');
   doc.text(title, 20, yPos);
   doc.setTextColor(0, 0, 0);
   return yPos + 8;
@@ -120,9 +157,9 @@ const addSectionTitle = (doc: jsPDF, title: string, yPos: number, color: [number
 
 const addFooter = (doc: jsPDF, pageNum: number, totalPages: number) => {
   const pageHeight = doc.internal.pageSize.height;
-  doc.setFontSize(8);
+  doc.setFontSize(10);
   doc.setTextColor(...COLORS.gray);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFont(THAI_FONT, 'normal');
   doc.text(
     `หน้า ${pageNum} / ${totalPages}`,
     105,
@@ -141,7 +178,7 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
   const doc = new jsPDF();
   
   // Load Thai font
-  await loadThaiFont(doc);
+  await setupThaiFont(doc);
   
   const stats = calculateIndividualStats(response);
   
@@ -154,9 +191,9 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
   // Info box
   doc.setFillColor(...COLORS.lightGray);
   doc.roundedRect(15, 40, 180, 15, 3, 3, 'F');
-  doc.setFontSize(9);
+  doc.setFontSize(11);
   doc.setTextColor(...COLORS.dark);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFont(THAI_FONT, 'normal');
   doc.text(`รหัสแบบสอบถาม: ${response.id.substring(0, 8).toUpperCase()}`, 20, 48);
   doc.text(`วันที่ตอบ: ${response.createdAt.toLocaleDateString('th-TH', { 
     year: 'numeric', 
@@ -178,8 +215,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
       ['รายได้/ค่าขนมต่อวัน', getLabel('dailyAllowance', response.dailyAllowance)],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.primary, fontSize: 9, font: 'Sarabun' },
-    bodyStyles: { fontSize: 9, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.primary, fontSize: 11, font: THAI_FONT },
+    bodyStyles: { fontSize: 11, font: THAI_FONT },
     columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 120 } },
     margin: { left: 15, right: 15 }
   });
@@ -200,8 +237,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
       ['ค่าใช้จ่ายต่อวัน', getLabel('dailyExpense', response.dailyExpense)],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.primary, fontSize: 9, font: 'Sarabun' },
-    bodyStyles: { fontSize: 9, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.primary, fontSize: 11, font: THAI_FONT },
+    bodyStyles: { fontSize: 11, font: THAI_FONT },
     columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 120 } },
     margin: { left: 15, right: 15 }
   });
@@ -221,8 +258,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
       ['ค่าเฉลี่ยด้านความรู้', stats.knowledge.mean.toFixed(2), stats.knowledge.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.knowledge, fontSize: 9, font: 'Sarabun' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.knowledge, fontSize: 10, font: THAI_FONT },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 30, halign: 'center' } },
     margin: { left: 15, right: 15 }
   });
@@ -240,8 +277,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
       ['ค่าเฉลี่ยด้านความตระหนัก', stats.awareness.mean.toFixed(2), stats.awareness.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.awareness, fontSize: 9, font: 'Sarabun' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.awareness, fontSize: 10, font: THAI_FONT },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 30, halign: 'center' } },
     margin: { left: 15, right: 15 }
   });
@@ -259,8 +296,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
       ['ค่าเฉลี่ยด้านความตั้งใจ', stats.intention.mean.toFixed(2), stats.intention.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.intention, fontSize: 9, font: 'Sarabun' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.intention, fontSize: 10, font: THAI_FONT },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 0: { cellWidth: 120 }, 1: { cellWidth: 30, halign: 'center' }, 2: { cellWidth: 30, halign: 'center' } },
     margin: { left: 15, right: 15 }
   });
@@ -270,10 +307,10 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
   doc.setFillColor(...COLORS.primary);
   doc.roundedRect(15, yPos, 180, 25, 3, 3, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFontSize(13);
+  doc.setFont(THAI_FONT, 'normal');
   doc.text('สรุปผลรวม', 105, yPos + 8, { align: 'center' });
-  doc.setFontSize(14);
+  doc.setFontSize(16);
   doc.text(`ค่าเฉลี่ยรวม: ${stats.overall.mean.toFixed(2)} | S.D.: ${stats.overall.sd.toFixed(2)} | ระดับ: ${stats.overall.level}`, 105, yPos + 18, { align: 'center' });
   doc.setTextColor(0, 0, 0);
 
@@ -281,8 +318,8 @@ export const generateIndividualPDF = async (response: SurveyResponse): Promise<v
   if (response.suggestions && response.suggestions.trim()) {
     yPos = yPos + 33;
     yPos = addSectionTitle(doc, 'ตอนที่ 4: ข้อเสนอแนะเพิ่มเติม', yPos);
-    doc.setFontSize(9);
-    doc.setFont('Sarabun', 'normal');
+    doc.setFontSize(11);
+    doc.setFont(THAI_FONT, 'normal');
     const splitText = doc.splitTextToSize(response.suggestions, 170);
     doc.text(splitText, 20, yPos + 8);
   }
@@ -295,7 +332,7 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
   const doc = new jsPDF();
   
   // Load Thai font
-  await loadThaiFont(doc);
+  await setupThaiFont(doc);
   
   const stats = calculateCategoryStats(responses);
   const total = responses.length;
@@ -310,9 +347,9 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
   // Info box
   doc.setFillColor(...COLORS.lightGray);
   doc.roundedRect(15, 40, 180, 15, 3, 3, 'F');
-  doc.setFontSize(9);
+  doc.setFontSize(11);
   doc.setTextColor(...COLORS.dark);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFont(THAI_FONT, 'normal');
   doc.text(`จำนวนผู้ตอบทั้งหมด: ${total} คน`, 20, 48);
   doc.text(`วันที่สร้างรายงาน: ${new Date().toLocaleDateString('th-TH', { 
     year: 'numeric', 
@@ -359,8 +396,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวม', '', total, '100.0'],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.primary, fontSize: 9, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 9, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.primary, fontSize: 11, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 11, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 40 }, 
       1: { cellWidth: 70 }, 
@@ -392,8 +429,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวม', total, '100.0'],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.primary, fontSize: 9, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 9, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.primary, fontSize: 11, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 11, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 110 }, 
       1: { cellWidth: 35, halign: 'center' }, 
@@ -409,7 +446,7 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
   pageNum++;
   
   // Reload font for new page
-  doc.setFont('Sarabun', 'normal');
+  doc.setFont(THAI_FONT, 'normal');
   
   addHeader(doc, 
     'รายงานสรุปผลแบบสอบถาม (ต่อ)',
@@ -442,8 +479,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวมด้านความรู้ความเข้าใจ', total, stats.knowledge.mean.toFixed(2), stats.knowledge.sd.toFixed(2), stats.knowledge.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.knowledge, fontSize: 8, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.knowledge, fontSize: 10, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 100 }, 
       1: { cellWidth: 20, halign: 'center' },
@@ -474,8 +511,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวมด้านความตระหนักต่อสุขภาพ', total, stats.awareness.mean.toFixed(2), stats.awareness.sd.toFixed(2), stats.awareness.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.awareness, fontSize: 8, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.awareness, fontSize: 10, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 100 }, 
       1: { cellWidth: 20, halign: 'center' },
@@ -506,8 +543,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวมด้านความตั้งใจและการปรับเปลี่ยนพฤติกรรม', total, stats.intention.mean.toFixed(2), stats.intention.sd.toFixed(2), stats.intention.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.intention, fontSize: 8, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 8, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.intention, fontSize: 10, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 10, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 100 }, 
       1: { cellWidth: 20, halign: 'center' },
@@ -532,8 +569,8 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
       ['รวมทั้งหมด', 11, total * 11, stats.overall.mean.toFixed(2), stats.overall.sd.toFixed(2), stats.overall.level],
     ],
     theme: 'grid',
-    headStyles: { fillColor: COLORS.primary, fontSize: 9, font: 'Sarabun', halign: 'center' },
-    bodyStyles: { fontSize: 9, font: 'Sarabun' },
+    headStyles: { fillColor: COLORS.primary, fontSize: 11, font: THAI_FONT, halign: 'center' },
+    bodyStyles: { fontSize: 11, font: THAI_FONT },
     columnStyles: { 
       0: { cellWidth: 80 }, 
       1: { cellWidth: 25, halign: 'center' },
@@ -549,11 +586,11 @@ export const generateSummaryPDF = async (responses: SurveyResponse[]): Promise<v
   yPos = (doc as any).lastAutoTable.finalY + 10;
   doc.setFillColor(...COLORS.lightGray);
   doc.roundedRect(15, yPos, 180, 35, 3, 3, 'F');
-  doc.setFontSize(10);
-  doc.setFont('Sarabun', 'normal');
+  doc.setFontSize(12);
+  doc.setFont(THAI_FONT, 'normal');
   doc.setTextColor(...COLORS.dark);
   doc.text('เกณฑ์การแปลผลค่าเฉลี่ย', 20, yPos + 8);
-  doc.setFontSize(9);
+  doc.setFontSize(11);
   doc.text('ค่าเฉลี่ย 4.51 - 5.00 = มากที่สุด', 25, yPos + 16);
   doc.text('ค่าเฉลี่ย 3.51 - 4.50 = มาก', 25, yPos + 22);
   doc.text('ค่าเฉลี่ย 2.51 - 3.50 = ปานกลาง', 25, yPos + 28);
